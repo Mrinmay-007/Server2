@@ -22,9 +22,16 @@ router = APIRouter(
 # -------------------------------
 # Paths
 # -------------------------------
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+# BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
-MODEL_PATH = os.path.join(BASE_DIR, "ml_models", "V1.keras")
+# MODEL_PATH = os.path.join(BASE_DIR, "ml_models", "V1.keras")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+MODEL_PATH = os.path.join(
+    BASE_DIR,
+    "ml_models",
+    "V1.keras"
+)
 
 CLASS_NAMES = [
     "Early Blight",

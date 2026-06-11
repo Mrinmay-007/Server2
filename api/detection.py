@@ -25,9 +25,12 @@ router = APIRouter(
 # --------------------------------------------------
 # Paths
 # --------------------------------------------------
+# CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+# API_DIR = os.path.dirname(CURRENT_DIR)
+# PROJECT_ROOT = os.path.dirname(API_DIR)
+
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-API_DIR = os.path.dirname(CURRENT_DIR)
-PROJECT_ROOT = os.path.dirname(API_DIR)
+PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
 
 YOLO_MODEL_1 = os.path.join(
     PROJECT_ROOT,
