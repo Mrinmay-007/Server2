@@ -1,52 +1,47 @@
 
 
-from fastapi import FastAPI  #type: ignore
-from fastapi.middleware.cors import CORSMiddleware #type: ignore
-import uvicorn #type: ignore
-import os
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 
 # ============================
-# from .db import connect_to_mongo, close_mongo_connection
-from .api import prediction,detection
+# Download models first
+# ============================
+from utils.download_models import download_models
 
+download_models()
 
+# ============================
+# Import routers AFTER models exist
+# ============================
+from api import prediction, detection
+
+# ============================
+# FastAPI app
 # ============================
 app = FastAPI()
 
-
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # all origins for testing
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ======================
-#  Database Connection
-# ======================
-
-
-# @app.on_event("startup")
-# async def startup_event():
-#     await connect_to_mongo()
-
-# @app.on_event("shutdown")
-# async def shutdown_event():
-#     await close_mongo_connection()
-    
-# ======================
-#  API Router
-# ======================
- 
+# ============================
+# Include Routers
+# ============================
 app.include_router(prediction.router)
 app.include_router(detection.router)
 
-
-# ======================
-# Main
-# ======================
-
+# ============================
+# Run App
+# ============================
 if __name__ == "__main__":
-    uvicorn.run(app, host="localhost", port=8000)
+    uvicorn.run(
+        "main:app",
+        host="localhost",
+        port=8000,
+        reload=True
+    )
