@@ -1,31 +1,30 @@
 
-# from fastapi import APIRouter, UploadFile, File, HTTPException
+
+# from fastapi import File, UploadFile , APIRouter
 # import numpy as np
 # from io import BytesIO
 # from PIL import Image
 # import tensorflow as tf
 # import os
+# import logging
 # import cv2
-# from functools import lru_cache
 
-# # -------------------------------
-# # TensorFlow Optimization
-# # -------------------------------
-# os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-# os.environ["TF_ENABLE_ONEDNN_OPTS"] = "1"
+# logging.basicConfig(level=logging.INFO)
+# logger = logging.getLogger(__name__)
 
 # router = APIRouter(
 #     prefix="/predict",
-#     tags=["Disease Prediction"]
+#     tags=["Prediction"],
 # )
-
+# #  -------------------------------
+# #  Define Model Path
 # # -------------------------------
-# # Paths
-# # -------------------------------
-# # BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
-# # MODEL_PATH = os.path.join(BASE_DIR, "ml_models", "V1.keras")
-# BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# BASE_DIR = os.path.dirname(
+#     os.path.dirname(
+#         os.path.abspath(__file__)
+#     )
+# )
 
 # MODEL_PATH = os.path.join(
 #     BASE_DIR,
@@ -33,63 +32,53 @@
 #     "V1.keras"
 # )
 
-# CLASS_NAMES = [
-#     "Early Blight",
-#     "Late Blight",
-#     "Healthy"
-# ]
-
 # # -------------------------------
-# # Lazy Load Model
+# # Validate Model
 # # -------------------------------
-# @lru_cache(maxsize=1)
-# def get_model():
-#     print("Loading disease model...")
-#     model = tf.keras.models.load_model(
-#         MODEL_PATH,
-#         compile=False
+# if not os.path.exists(MODEL_PATH):
+#     raise FileNotFoundError(
+#         f"Model not found: {MODEL_PATH}"
 #     )
-#     print("Disease model loaded.")
-#     return model
 
 # # -------------------------------
-# # Health Check
+# # Load Model Once
 # # -------------------------------
-# @router.get("/ping")
-# async def ping():
-#     return {"status": "ok"}
+# logger.info("Loading disease model...")
 
-# # -------------------------------
-# # Image Processing
-# # -------------------------------
-# def read_file_as_image(data: bytes):
+# MODEL = tf.keras.models.load_model(
+#     MODEL_PATH,
+#     compile=False
+# )
 
-#     image = Image.open(BytesIO(data))
+# logger.info("Disease model loaded.")
+# CLASS_NAMES = ["Early Blight", "Late Blight", "Healthy"]
 
-#     if image.mode != "RGB":
-#         image = image.convert("RGB")
 
-#     image = image.resize((256, 256))
-
-#     image = np.asarray(image, dtype=np.float32)
-
-#     image /= 255.0
-
-#     return np.expand_dims(image, axis=0)
 
 # # -------------------------------
 # # Severity Detection
 # # -------------------------------
-# def get_severity_from_bytes(image_bytes: bytes):
+# def get_severity_from_bytes(
+#     image_bytes: bytes
+# ):
 
-#     np_arr = np.frombuffer(image_bytes, np.uint8)
+#     np_arr = np.frombuffer(
+#         image_bytes,
+#         np.uint8
+#     )
 
-#     img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+#     img = cv2.imdecode(
+#         np_arr,
+#         cv2.IMREAD_COLOR
+#     )
 
 #     if img is None:
 #         return "Unknown", 0.0
 
-#     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+#     hsv = cv2.cvtColor(
+#         img,
+#         cv2.COLOR_BGR2HSV
+#     )
 
 #     leaf_mask = cv2.inRange(
 #         hsv,
@@ -108,11 +97,18 @@
 #         leaf_mask
 #     )
 
-#     infected_area = np.count_nonzero(infected_mask)
-#     total_leaf_area = np.count_nonzero(leaf_mask)
+#     infected_area = np.count_nonzero(
+#         infected_mask
+#     )
+
+#     total_leaf_area = np.count_nonzero(
+#         leaf_mask
+#     )
 
 #     ratio = (
-#         infected_area / total_leaf_area * 100
+#         infected_area /
+#         total_leaf_area *
+#         100
 #         if total_leaf_area > 0
 #         else 0
 #     )
@@ -126,75 +122,55 @@
 
 #     return severity, ratio
 
+
 # # -------------------------------
-# # Prediction Endpoint
+# # API Endpoints
 # # -------------------------------
+
+# @router.get("/ping")
+# async def ping():
+#     return "Hello, I am alive"
+
+# def read_file_as_image(data) -> np.ndarray:
+#     image = np.array(Image.open(BytesIO(data)))
+#     return image
+
 # @router.post("/")
-# async def predict(file: UploadFile = File(...)):
+# async def predict(
+#     file: UploadFile = File(...)
+# ):
+#     image = read_file_as_image(await file.read())
+#     img_batch = np.expand_dims(image, 0)
+    
+#     predictions = MODEL.predict(img_batch)
 
-#     try:
-#         file_bytes = await file.read()
-
-#         image = read_file_as_image(file_bytes)
-
-#         model = get_model()
-
-#         predictions = model(
-#             image,
-#             training=False
-#         ).numpy()
-
-#         predicted_class = CLASS_NAMES[
-#             np.argmax(predictions[0])
-#         ]
-
-#         confidence = float(
-#             np.max(predictions[0])
-#         )
-
-#         severity = "N/A"
-#         ratio = 0.0
-
-#         if predicted_class != "Healthy":
-#             severity, ratio = get_severity_from_bytes(
-#                 file_bytes
-#             )
-
-#         return {
-#             "class": predicted_class,
-#             "confidence": round(confidence * 100, 2),
-#             "severity": severity,
-#             "infected_ratio": round(ratio, 2)
-#         }
-
-#     except Exception as e:
-#         raise HTTPException(
-#             status_code=500,
-#             detail=str(e)
-#         )
+#     predicted_class = CLASS_NAMES[np.argmax(predictions[0])]
+#     confidence = np.max(predictions[0])
+#     return {
+#         'class': predicted_class,
+#         'confidence': float(confidence)
+#     }
 
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import File, UploadFile, APIRouter, HTTPException
 import numpy as np
 from io import BytesIO
 from PIL import Image
 import tensorflow as tf
 import os
+import logging
 import cv2
 
-# -------------------------------
-# TensorFlow Optimization
-# -------------------------------
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "1"
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/predict",
-    tags=["Disease Prediction"]
+    tags=["Prediction"],
 )
 
 # -------------------------------
-# Paths
+# Define Model Path
 # -------------------------------
 BASE_DIR = os.path.dirname(
     os.path.dirname(
@@ -208,14 +184,8 @@ MODEL_PATH = os.path.join(
     "V1.keras"
 )
 
-CLASS_NAMES = [
-    "Early Blight",
-    "Late Blight",
-    "Healthy"
-]
-
 # -------------------------------
-# Validate Model
+# Validate Model Path
 # -------------------------------
 if not os.path.exists(MODEL_PATH):
     raise FileNotFoundError(
@@ -223,62 +193,40 @@ if not os.path.exists(MODEL_PATH):
     )
 
 # -------------------------------
-# Load Model Once
+# Load Model
 # -------------------------------
-print("Loading disease model...")
+logger.info("Loading disease model...")
 
 MODEL = tf.keras.models.load_model(
     MODEL_PATH,
     compile=False
 )
 
-print("Disease model loaded.")
+logger.info("Disease model loaded successfully.")
+
+CLASS_NAMES = [
+    "Early Blight",
+    "Late Blight",
+    "Healthy"
+]
+
+IMAGE_SIZE = 256
+
 
 # -------------------------------
-# Health Check
+# Read Image
 # -------------------------------
-@router.get("/ping")
-async def ping():
-    return {
-        "status": "ok",
-        "model_loaded": True
-    }
-
-# -------------------------------
-# Image Processing
-# -------------------------------
-def read_file_as_image(
-    data: bytes
-):
-
-    image = (
-        Image.open(
-            BytesIO(data)
-        )
-        .convert("RGB")
-        .resize((256, 256))
-    )
-
-    image = np.array(
-        image,
-        dtype=np.float32
-    )
-
-    image /= 255.0
-
-    image = np.expand_dims(
-        image,
-        axis=0
-    )
-
+def read_file_as_image(data: bytes) -> np.ndarray:
+    image = Image.open(BytesIO(data)).convert("RGB")
+    image = image.resize((IMAGE_SIZE, IMAGE_SIZE))
+    image = np.array(image)
     return image
+
 
 # -------------------------------
 # Severity Detection
 # -------------------------------
-def get_severity_from_bytes(
-    image_bytes: bytes
-):
+def get_severity_from_bytes(image_bytes: bytes):
 
     np_arr = np.frombuffer(
         image_bytes,
@@ -298,12 +246,14 @@ def get_severity_from_bytes(
         cv2.COLOR_BGR2HSV
     )
 
+    # Detect green leaf
     leaf_mask = cv2.inRange(
         hsv,
         np.array([25, 40, 40]),
         np.array([85, 255, 255])
     )
 
+    # Detect dark infected area
     disease_mask = cv2.inRange(
         hsv,
         np.array([0, 0, 0]),
@@ -324,82 +274,75 @@ def get_severity_from_bytes(
     )
 
     ratio = (
-        infected_area /
-        total_leaf_area *
-        100
-        if total_leaf_area > 0
-        else 0
+        infected_area / total_leaf_area * 100
+        if total_leaf_area > 0 else 0
     )
 
     if ratio < 10:
         severity = "Mild"
     elif ratio < 30:
         severity = "Moderate"
-    else:
+    elif ratio < 50:
         severity = "Severe"
+    elif ratio < 70:
+        severity = "Critical"
+    else:
+        severity = "Devastating"
+    return severity, round(ratio, 2)
 
-    return severity, ratio
+
+# -------------------------------
+# Health Check
+# -------------------------------
+@router.get("/ping")
+async def ping():
+    return {"message": "Prediction API is running"}
+
 
 # -------------------------------
 # Prediction Endpoint
 # -------------------------------
 @router.post("/")
-async def predict(
-    file: UploadFile = File(...)
-):
-
+async def predict(file: UploadFile = File(...)):
     try:
+        image_bytes = await file.read()
 
-        file_bytes = await file.read()
+        image = read_file_as_image(image_bytes)
 
-        image = read_file_as_image(
-            file_bytes
-        )
-
-        predictions = MODEL.predict(
+        img_batch = np.expand_dims(
             image,
-            verbose=0
+            axis=0
         )
+
+        predictions = MODEL.predict(img_batch)
 
         predicted_class = CLASS_NAMES[
-            np.argmax(
-                predictions[0]
-            )
+            np.argmax(predictions[0])
         ]
 
         confidence = float(
-            np.max(
-                predictions[0]
-            )
+            np.max(predictions[0]) * 100
         )
 
-        severity = "N/A"
-        ratio = 0.0
+        severity, infected_ratio = get_severity_from_bytes(
+            image_bytes
+        )
 
-        if predicted_class != "Healthy":
-
-            severity, ratio = (
-                get_severity_from_bytes(
-                    file_bytes
-                )
-            )
+        # Healthy leaf override
+        if predicted_class == "Healthy":
+            severity = "No Infection"
+            infected_ratio = 0.0
 
         return {
             "class": predicted_class,
-            "confidence": round(
-                confidence * 100,
-                2
-            ),
+            "confidence": round(confidence, 2),
             "severity": severity,
-            "infected_ratio": round(
-                ratio,
-                2
-            )
+            "infected_ratio": infected_ratio
         }
 
     except Exception as e:
-
+        logger.error(str(e))
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail="Prediction failed"
         )

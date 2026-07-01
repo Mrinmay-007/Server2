@@ -7,7 +7,7 @@ import os
 
 # ============================
 # from .db import connect_to_mongo, close_mongo_connection
-from api import prediction,detection
+from .api import prediction,detection
 
 
 # ============================
@@ -43,7 +43,6 @@ app.add_middleware(
 app.include_router(prediction.router)
 app.include_router(detection.router)
 
-# app.include_router(detect_yolo.router)
 
 # ======================
 # Main
