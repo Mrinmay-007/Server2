@@ -1,26 +1,77 @@
 
 
+# from fastapi import FastAPI
+# from fastapi.middleware.cors import CORSMiddleware
+# import uvicorn
+
+
+# from utils.download_models import download_models
+# from api import prediction, detection
+
+# app = FastAPI()
+# # ============================
+# # Download models first
+# # ============================
+# @app.on_event("startup")
+# async def startup():
+#     download_models()
+
+
+# # ============================
+# # FastAPI app
+# # ============================
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # ============================
+# # Include Routers
+# # ============================
+# app.include_router(prediction.router)
+# app.include_router(detection.router)
+
+# # ============================
+# # Run App
+# # ============================
+# if __name__ == "__main__":
+#     uvicorn.run(
+#         "main:app",
+#         host="localhost",
+#         port=8000,
+#         reload=True
+#     )
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-
-# ============================
-# Download models first
-# ============================
 from utils.download_models import download_models
 
-download_models()
-
-# ============================
-# Import routers AFTER models exist
-# ============================
-from api import prediction, detection
-
-# ============================
-# FastAPI app
-# ============================
 app = FastAPI()
 
+
+# ============================
+# Startup Event
+# ============================
+@app.on_event("startup")
+async def startup():
+    # Download models first
+    download_models()
+
+    # Import routers after models exist
+    from api import prediction, detection
+
+    app.include_router(prediction.router)
+    app.include_router(detection.router)
+
+
+# ============================
+# Middleware
+# ============================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,11 +80,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # ============================
-# Include Routers
+# Root route
 # ============================
-app.include_router(prediction.router)
-app.include_router(detection.router)
+@app.get("/")
+def root():
+    return {"message": "API Running"}
+
 
 # ============================
 # Run App
@@ -41,7 +95,6 @@ app.include_router(detection.router)
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
-        host="localhost",
-        port=8000,
-        reload=True
+        host="0.0.0.0",
+        port=8000
     )
