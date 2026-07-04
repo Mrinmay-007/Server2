@@ -5,14 +5,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from utils.download_models import download_models
+# from utils.download_models import download_models
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# logging.basicConfig(level=logging.INFO)
+# logger = logging.getLogger(__name__)
 
-logger.info("Ensuring models are downloaded...")
-download_models()
-logger.info("Models ready.")
+# logger.info("Ensuring models are downloaded...")
+# download_models()
+# logger.info("Models ready.")
 
 from api import prediction_tf_lite
 from api import detection_tf_lite
