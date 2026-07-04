@@ -1,309 +1,118 @@
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
-from ultralytics import YOLO
-from concurrent.futures import ThreadPoolExecutor
-
-import tensorflow as tf
+import io
 import numpy as np
-
+import tensorflow as tf
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from pydantic import BaseModel
 from PIL import Image
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input, MobileNetV2 #type: ignore
+from tensorflow.keras import layers, models
 
-import tempfile
-import shutil
-import os
+router = APIRouter(prefix="/detect", tags=["Potato Leaf Detection"])
 
-# --------------------------------------------------
-# TensorFlow Optimization
-# --------------------------------------------------
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "1"
+# ------------------------
+# CONFIG
+# ------------------------
+MODEL_PATH = "./ml_models/detect_V1.keras"
+IMG_SIZE = (224, 224)
+CLASS_NAMES = ["Not_Potato", "Potato"]  # index 0, 1 -- must match training order
+ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/jpg", "image/webp"}
 
-# --------------------------------------------------
-# Router
-# --------------------------------------------------
-router = APIRouter(
-    prefix="/detect",
-    tags=["Detection"]
-)
 
-# --------------------------------------------------
-# Paths
-# --------------------------------------------------
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
+def build_architecture():
+    """
+    Must exactly match the architecture used during training:
+    MobileNetV2 base -> GlobalAveragePooling2D -> Dense(128, relu)
+    -> BatchNormalization -> Dropout -> Dense(1, sigmoid)
 
-YOLO_MODEL_1 = os.path.join(
-    PROJECT_ROOT,
-    "ml_models",
-    "yolo",
-    "best.pt"
-)
+    If your training script's head differs, update this to match exactly --
+    weights-only loading requires an identical layer-by-layer architecture.
+    """
+    base_model = MobileNetV2(input_shape=IMG_SIZE + (3,), include_top=False, weights=None)
+    inputs = layers.Input(shape=IMG_SIZE + (3,))
+    x = base_model(inputs, training=False)
+    x = layers.GlobalAveragePooling2D()(x)
+    x = layers.Dense(128, activation="relu")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dropout(0.3)(x)
+    outputs = layers.Dense(1, activation="sigmoid")(x)
+    return models.Model(inputs, outputs)
 
-YOLO_MODEL_2 = os.path.join(
-    PROJECT_ROOT,
-    "ml_models",
-    "yolo",
-    "best2.pt"
-)
 
-KERAS_MODEL = os.path.join(
-    PROJECT_ROOT,
-    "ml_models",
-    "detect_V2.keras"
-)
-
-CLASS_NAMES = [
-    "Not Potato",
-    "Potato"
-]
-
-# --------------------------------------------------
-# Validate Model Files
-# --------------------------------------------------
-for model_path in (
-    YOLO_MODEL_1,
-    YOLO_MODEL_2,
-    KERAS_MODEL
-):
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(
-            f"Model not found: {model_path}"
-        )
-
-# --------------------------------------------------
-# Load Models Once
-# --------------------------------------------------
-print("Loading YOLO Model 1...")
-YOLO1 = YOLO(YOLO_MODEL_1)
-
-print("Loading YOLO Model 2...")
-YOLO2 = YOLO(YOLO_MODEL_2)
-
-print("Loading Keras Model...")
-KERAS = tf.keras.models.load_model(
-    KERAS_MODEL,
-    compile=False
-)
-
-print("All models loaded successfully.")
-
-# --------------------------------------------------
-# Thread Pool
-# --------------------------------------------------
-EXECUTOR = ThreadPoolExecutor(
-    max_workers=2
-)
-
-# --------------------------------------------------
-# Image Preprocessing
-# --------------------------------------------------
-def preprocess_image(
-    image_path: str,
-    target_size=(224, 224)
-):
-    image = (
-        Image.open(image_path)
-        .convert("RGB")
-        .resize(target_size)
-    )
-
-    image = np.array(
-        image,
-        dtype=np.float32
-    )
-
-    image /= 255.0
-
-    image = np.expand_dims(
-        image,
-        axis=0
-    )
-
-    return image
-
-# --------------------------------------------------
-# Health Check
-# --------------------------------------------------
-@router.get("/ping")
-async def ping():
-    return {
-        "status": "ok",
-        "models_loaded": True
-    }
-
-# --------------------------------------------------
-# Detection Endpoint
-# --------------------------------------------------
-@router.post("/")
-async def detect(
-    file: UploadFile = File(...)
-):
-
-    temp_path = None
-
+def load_model_safely(path: str):
+    """
+    Try the normal full-model load first (fast path).
+    If it fails due to a Keras version mismatch (config deserialization
+    error -- e.g. 'GlorotUniform.__init__() got an unexpected keyword
+    argument input_axes'), fall back to rebuilding the architecture and
+    loading only the weights, which aren't affected by config-format
+    changes between Keras versions.
+    """
     try:
+        return tf.keras.models.load_model(path)
+    except TypeError as e:
+        print(f"[warn] Full model load failed ({e}); falling back to weights-only load.")
+        rebuilt_model = build_architecture()
+        rebuilt_model.load_weights(path)
+        return rebuilt_model
 
-        suffix = (
-            os.path.splitext(
-                file.filename or ""
-            )[1]
-            or ".jpg"
-        )
 
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=suffix
-        ) as tmp:
+# ------------------------
+# LOAD MODEL ONCE AT STARTUP
+# (module-level load = runs once when the app imports this router,
+#  not on every request)
+# ------------------------
+model = load_model_safely(MODEL_PATH)
 
-            shutil.copyfileobj(
-                file.file,
-                tmp
-            )
 
-            temp_path = tmp.name
+# ------------------------
+# RESPONSE SCHEMA
+# ------------------------
+class PredictionResponse(BaseModel):
+    label: str
+    confidence: float
+    raw_score: float
 
-        # ----------------------------------
-        # YOLO Parallel Prediction
-        # ----------------------------------
-        future1 = EXECUTOR.submit(
-            YOLO1.predict,
-            temp_path,
-            verbose=False
-        )
 
-        future2 = EXECUTOR.submit(
-            YOLO2.predict,
-            temp_path,
-            verbose=False
-        )
+def preprocess_image(image_bytes: bytes) -> np.ndarray:
+    """Convert raw image bytes into a model-ready array."""
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid or corrupted image file.")
 
-        result1 = future1.result()
-        result2 = future2.result()
+    img = img.resize(IMG_SIZE)
+    img_array = np.array(img, dtype=np.float32)
+    img_array = np.expand_dims(img_array, axis=0)  # add batch dimension
+    img_array = preprocess_input(img_array)
+    return img_array
 
-        # ----------------------------------
-        # TensorFlow Prediction
-        # ----------------------------------
-        image = preprocess_image(
-            temp_path
-        )
 
-        result3 = KERAS.predict(
-            image,
-            verbose=0
-        )
-
-        # ----------------------------------
-        # YOLO 1
-        # ----------------------------------
-        class1 = result1[0].names[
-            result1[0].probs.top1
-        ]
-
-        conf1 = float(
-            result1[0].probs.top1conf
-        )
-
-        vote1 = (
-            class1.lower()
-            == "potato"
-        )
-
-        # ----------------------------------
-        # YOLO 2
-        # ----------------------------------
-        class2 = result2[0].names[
-            result2[0].probs.top1
-        ]
-
-        conf2 = float(
-            result2[0].probs.top1conf
-        )
-
-        vote2 = (
-            class2.lower()
-            == "potato"
-        )
-
-        # ----------------------------------
-        # TensorFlow
-        # ----------------------------------
-        class3 = CLASS_NAMES[
-            np.argmax(result3[0])
-        ]
-
-        conf3 = float(
-            np.max(result3[0])
-        )
-
-        vote3 = (
-            class3.lower()
-            == "potato"
-        )
-
-        # ----------------------------------
-        # Majority Voting
-        # ----------------------------------
-        votes = [
-            vote1,
-            vote2,
-            vote3
-        ]
-
-        final_decision = (
-            "Potato"
-            if votes.count(True) >= 2
-            else "Not Potato"
-        )
-
-        avg_confidence = round(
-            (
-                conf1 +
-                conf2 +
-                conf3
-            ) / 3 * 100,
-            2
-        )
-
-        return {
-            "final_decision": final_decision,
-            "confidence": avg_confidence,
-            "model_predictions": {
-                "yolo_1": {
-                    "class": class1,
-                    "confidence": round(
-                        conf1 * 100,
-                        2
-                    )
-                },
-                "yolo_2": {
-                    "class": class2,
-                    "confidence": round(
-                        conf2 * 100,
-                        2
-                    )
-                },
-                "keras": {
-                    "class": class3,
-                    "confidence": round(
-                        conf3 * 100,
-                        2
-                    )
-                }
-            }
-        }
-
-    except Exception as e:
-
+@router.post("/", response_model=PredictionResponse)
+async def predict_potato_leaf(file: UploadFile = File(...)):
+    """
+    Upload a leaf image and get a prediction: Potato or Not_Potato.
+    """
+    if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
-            status_code=500,
-            detail=str(e)
+            status_code=400,
+            detail=f"Unsupported file type '{file.content_type}'. Please upload a JPEG, PNG, or WEBP image.",
         )
 
-    finally:
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-        if (
-            temp_path
-            and os.path.exists(temp_path)
-        ):
-            os.remove(temp_path)
+    img_array = preprocess_image(image_bytes)
 
+    raw_score = float(model.predict(img_array, verbose=0)[0][0])
+    predicted_index = int(raw_score > 0.5)
+    label = CLASS_NAMES[predicted_index]
+    confidence = raw_score if predicted_index == 1 else 1 - raw_score
+
+    return PredictionResponse(
+        label=label,
+        confidence=round(confidence, 4),
+        raw_score=round(raw_score, 4),
+    )
+    

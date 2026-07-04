@@ -74,6 +74,7 @@ def read_file_as_image(data: bytes) -> np.ndarray:
 # -------------------------------
 # Severity Detection
 # -------------------------------
+
 def get_severity_from_bytes(image_bytes: bytes):
 
     np_arr = np.frombuffer(
