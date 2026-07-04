@@ -1,4 +1,4 @@
-    
+ 
 import io
 import os
 import numpy as np
@@ -20,7 +20,6 @@ router = APIRouter(prefix="/detect", tags=["Potato Leaf Detection"])
 
 # ------------------------
 # CONFIG
-# BASE_DIR goes up two levels: api/detection_tf_lite.py -> api/ -> project root
 # ------------------------
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(BASE_DIR, "ml_models", "detect_V1.tflite")
@@ -124,3 +123,4 @@ async def predict_potato_leaf(file: UploadFile = File(...)):
         confidence=round(confidence, 4),
         raw_score=round(raw_score, 4),
     )
+    

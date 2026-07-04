@@ -7,7 +7,6 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 MODEL_DIR = os.path.join(BASE_DIR, "ml_models")
 
-
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 
